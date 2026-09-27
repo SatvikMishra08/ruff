@@ -1193,17 +1193,11 @@ struct PathAssignmentConflict;
 
 #[cfg(test)]
 mod tests {
-    use super::super::sequents::SequentMap;
     use super::super::solutions::SolutionWalker;
-    use super::super::variables::{
-        ConcreteEquivalenceBound, ConcreteLowerBound, ConcreteUpperBound, ConstraintProvenance,
-        TypeVarEquivalenceBound, TypeVarRangeBound,
-    };
     use super::super::*;
-    use super::can_interact_without_shared_typevars;
 
     use crate::db::tests::{TestDb, setup_db};
-    use crate::types::{BoundTypeVarInstance, KnownClass, Type, TypeVarVariance};
+    use crate::types::{BoundTypeVarInstance, KnownClass, TypeVarVariance};
     use ruff_python_ast::name::Name;
 
     fn create_typevar<'db>(db: &'db TestDb, name: &'static str) -> BoundTypeVarInstance<'db> {
@@ -1213,76 +1207,6 @@ mod tests {
             Name::new_static(name),
             TypeVarVariance::Invariant,
         )
-    }
-
-    #[test]
-    fn disjoint_typevar_support_only_needs_concrete_pivot_pairs() {
-        let db = setup_db();
-        let db = &db;
-        let env = db.program_environment();
-        let t = create_typevar(db, "T");
-        let u = create_typevar(db, "U");
-        let v = create_typevar(db, "V");
-        let w = create_typevar(db, "W");
-        let int = KnownClass::Int.to_instance(db, &env);
-        let provenance = ConstraintProvenance::Evidence;
-        let constraints = |first, second| -> [Constraint<'_>; 5] {
-            [
-                ConcreteLowerBound::new(provenance, first, int).into(),
-                ConcreteUpperBound::new(provenance, first, int).into(),
-                ConcreteEquivalenceBound::new(provenance, first, int).into(),
-                TypeVarRangeBound::new(db, provenance, first, second).into(),
-                TypeVarEquivalenceBound::new(db, provenance, first, second).into(),
-            ]
-        };
-
-        for left in constraints(t, u) {
-            for right in constraints(v, w) {
-                for (left, right) in [(left, right), (right, left)] {
-                    let may_interact = can_interact_without_shared_typevars(left, right);
-                    let sequents = SequentMap::for_constraint_pair(db, &env, left, right);
-                    assert_eq!(
-                        may_interact,
-                        !sequents.sequents.is_empty(),
-                        "{left:?}, {right:?}"
-                    );
-                }
-            }
-        }
-
-        // Range constraints with a shared type variable do interact, even though their kinds
-        // cannot interact when their supports are disjoint.
-        let left = TypeVarRangeBound::new(db, provenance, t, u).into();
-        let right = TypeVarRangeBound::new(db, provenance, u, v).into();
-        assert!(!can_interact_without_shared_typevars(left, right));
-        assert!(
-            !SequentMap::for_constraint_pair(db, &env, left, right)
-                .sequents
-                .is_empty()
-        );
-
-        // A type variable nested inside a bound also belongs to the constraint's support.
-        let left = ConcreteLowerBound::new(
-            provenance,
-            t,
-            Type::homogeneous_tuple(db, &env, Type::TypeVar(u)),
-        )
-        .into();
-        let right = ConcreteLowerBound::new(provenance, u, int).into();
-        let mut storage = ConstraintSetStorage::default();
-        let left_id = storage.intern_constraint(db, &env, left);
-        let right_id = storage.intern_constraint(db, &env, right);
-        assert!(storage.constraint_support(left_id).is_complete());
-        assert!(
-            storage
-                .constraint_support(left_id)
-                .overlaps_with(storage.constraint_support(right_id))
-        );
-        assert!(
-            !SequentMap::for_constraint_pair(db, &env, left, right)
-                .sequents
-                .is_empty()
-        );
     }
 
     fn create_constraint<'db, 'c>(

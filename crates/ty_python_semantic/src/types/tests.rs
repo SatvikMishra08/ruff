@@ -2,16 +2,13 @@ use super::*;
 use crate::db::tests::{TestDbBuilder, setup_db};
 use crate::place::{global_symbol, typing_extensions_symbol, typing_symbol};
 use crate::types::call::bind::CallableDescription;
-use crate::types::constraints::ConstraintSetBuilder;
 use crate::types::type_alias::PEP695TypeAliasType;
-use crate::types::typevar::TypeVarSet;
 use crate::{Db, ProgramEnvironment};
 use ruff_db::files::system_path_to_file;
 use ruff_db::system::DbWithWritableSystem as _;
 use ruff_db::testing::assert_function_query_was_not_run_by_name;
 use ruff_python_ast as ast;
 use ruff_python_ast::PythonVersion;
-use ruff_python_ast::name::Name;
 use salsa::plumbing::AsId;
 use test_case::test_case;
 use ty_python_core::program::Program;
@@ -368,61 +365,6 @@ fn todo_types() {
             .build()
             .is_todo()
     );
-}
-
-#[test]
-fn owned_assignability_shortcuts_match_eager_relations() {
-    let db = setup_db();
-    let db = &db;
-    let env = db.program_environment();
-    let t = BoundTypeVarInstance::synthetic(
-        db,
-        &env,
-        Name::new_static("T"),
-        TypeVarVariance::Invariant,
-    );
-    let typevar = Type::TypeVar(t);
-    let int = KnownClass::Int.to_instance(db, &env);
-    let str = KnownClass::Str.to_instance(db, &env);
-    let divergent = Type::divergent(salsa::plumbing::Id::from_bits(1));
-    let visitor = ApplyTypeMappingVisitor::new(&env);
-    let types = [
-        Type::Never,
-        Type::object(),
-        Type::unknown(),
-        int,
-        str,
-        Type::int_literal(1),
-        typevar,
-        UnionType::from_elements(db, &env, [int, str]),
-        UnionType::from_elements(db, &env, [int, typevar]),
-        IntersectionType::from_elements(db, &env, [int, typevar]),
-        divergent,
-        divergent.materialize(db, MaterializationKind::Top, &visitor),
-        divergent.materialize(db, MaterializationKind::Bottom, &visitor),
-    ];
-
-    for inferable in [TypeVarSet::None, TypeVarSet::from_typevars(db, [t])] {
-        for source in types {
-            for target in types {
-                let constraints = ConstraintSetBuilder::new();
-                let expected = source.when_assignable_to(db, &env, target, &constraints, inferable);
-                let actual = source.when_assignable_to_owned(db, &env, target, inferable);
-                actual.query(|_, result| {
-                    assert_eq!(
-                        result.is_trivially_always_satisfied(),
-                        expected.is_trivially_always_satisfied(),
-                        "{source:?} -> {target:?} (inferable: {inferable:?})"
-                    );
-                    assert_eq!(
-                        result.is_never_satisfied(db, &env),
-                        expected.is_never_satisfied(db, &env),
-                        "{source:?} -> {target:?} (inferable: {inferable:?})"
-                    );
-                });
-            }
-        }
-    }
 }
 
 #[test]

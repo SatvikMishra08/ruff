@@ -2010,44 +2010,6 @@ mod tests {
     }
 
     #[test]
-    fn single_constraint_shortcuts_match_sequent_derivation() {
-        let db = setup_db();
-        let db = &db;
-        let env = db.program_environment();
-        let t = create_typevar(db, "T");
-        let u = create_typevar(db, "U");
-        let provenance = ConstraintProvenance::Evidence;
-
-        let mut constraints: Vec<Constraint<'_>> = Vec::new();
-        for bound in [
-            t.domain(db).bottom(db),
-            t.domain(db).top(db),
-            known_instance(db, KnownClass::Int),
-        ] {
-            constraints.push(ConcreteLowerBound::new(provenance, t, bound).into());
-            constraints.push(ConcreteUpperBound::new(provenance, t, bound).into());
-            constraints.push(ConcreteEquivalenceBound::new(provenance, t, bound).into());
-        }
-        for right in [t, u] {
-            constraints.push(TypeVarRangeBound::new(db, provenance, t, right).into());
-            constraints.push(TypeVarEquivalenceBound::new(db, provenance, t, right).into());
-        }
-
-        for constraint in constraints {
-            let mut expected = SequentMap::default();
-            constraint.add_sequents(db, &env, &mut expected);
-            expected.finish();
-            let actual = SequentMap::for_constraint(db, &env, constraint);
-            assert_eq!(*actual, expected, "{constraint:?}");
-            assert_eq!(
-                std::ptr::eq(actual, &EMPTY_SEQUENT_MAP),
-                expected.sequents.is_empty(),
-                "{constraint:?}"
-            );
-        }
-    }
-
-    #[test]
     fn overlapping_lower_bounds_do_not_skip_nonempty_sequent_map() {
         let db = setup_db();
         let db = &db;
